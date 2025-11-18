@@ -14,7 +14,9 @@ log_media: stdout
 log_dir: /var/log
 pid_dir: /var/run
 
-# iptables configuration
+# iptables configuration  
 iptables:
   enabled: true
+  ipv4_chain: CROWDSEC_CHAIN
+  ipv6_chain: CROWDSEC_CHAIN
 

@@ -1,0 +1,18 @@
+# Shell scripts should always use LF
+*.sh text eol=lf
+
+# PowerShell scripts
+*.ps1 text eol=lf
+*.psm1 text eol=lf
+*.psd1 text eol=lf
+
+# YAML files
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Markdown files
+*.md text eol=lf
+
+# Docker files
+Dockerfile* text eol=lf
+
