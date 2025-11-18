@@ -46,11 +46,14 @@ if [ ! -f "${CONFIG_TEMPLATE_PATH}" ]; then
 fi
 
 echo "Processing configuration template with environment variables..."
+echo "  Source: ${CONFIG_TEMPLATE_PATH}"
+echo "  Destination: ${CONFIG_FILE}"
 # Collect all environment variables that start with CROWDSEC_ for substitution
 CROWDSEC_VARS=$(env | grep '^CROWDSEC_' | cut -d= -f1 | sed 's/^/${/' | sed 's/$/}/' | tr '\n' ' ')
+echo "  Substituting variables: $(env | grep '^CROWDSEC_' | cut -d= -f1 | tr '\n' ' ')"
 # Substitute all CROWDSEC_* environment variables
 envsubst "$CROWDSEC_VARS" < "${CONFIG_TEMPLATE_PATH}" > "${CONFIG_FILE}"
-echo "Configuration file generated successfully from template"
+echo "Configuration file generated successfully"
 
 # Ensure configuration file was created successfully
 if [ ! -f "${CONFIG_FILE}" ]; then

@@ -234,15 +234,19 @@ jobs:
           fetch-depth: 0
       
       - name: Verify tag is on master branch
+        id: check_branch
         run: |
           TAG_NAME=${GITHUB_REF#refs/tags/}
           git fetch origin master || git fetch origin main
           if ! git branch -r --contains $(git rev-parse $TAG_NAME) | grep -qE "(origin/master|origin/main)"; then
-            echo "Error: Tag $TAG_NAME is not on master/main branch. Releases can only be created from master/main."
-            exit 1
+            echo "Tag $TAG_NAME is not on master/main branch. Skipping release creation."
+            echo "skip_release=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip_release=false" >> $GITHUB_OUTPUT
           fi
       
       - name: Load versions and generate release notes
+        if: steps.check_branch.outputs.skip_release != 'true'
         id: release_notes
         run: |
           if [ -f .env ]; then
@@ -303,6 +307,7 @@ jobs:
           echo "bouncer_version=${CROWDSEC_BOUNCER_VERSION:-latest}" >> $GITHUB_OUTPUT
       
       - name: Generate changelog
+        if: steps.check_branch.outputs.skip_release != 'true'
         id: changelog
         uses: mikepenz/release-changelog-builder-action@v4
         with:
@@ -312,6 +317,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Create GitHub Release
+        if: steps.check_branch.outputs.skip_release != 'true'
         uses: softprops/action-gh-release@v2
         with:
           name: "CrowdSec Firewall Bouncer ${{ steps.release_notes.outputs.version }} (Debian ${{ steps.release_notes.outputs.debian_version }}, Bouncer ${{ steps.release_notes.outputs.bouncer_version }})"
