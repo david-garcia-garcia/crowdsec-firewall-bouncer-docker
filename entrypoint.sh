@@ -8,17 +8,17 @@ set -eu
 # - Template: /tmp/crowdsec-config-source/crowdsec-firewall-bouncer.yaml.template
 # - Output: /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml
 
-# Logging functions
+# Logging functions with timestamp (ISO 8601 format)
 log_info() {
-    echo "[INFO] $*"
+    echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") [INFO] $*"
 }
 
 log_warn() {
-    echo "[WARN] $*" >&2
+    echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") [WARN] $*" >&2
 }
 
 log_error() {
-    echo "[ERROR] $*" >&2
+    echo "$(date -u +"%Y-%m-%dT%H:%M:%SZ") [ERROR] $*" >&2
 }
 
 CONFIG_DIR="/etc/crowdsec/bouncers"

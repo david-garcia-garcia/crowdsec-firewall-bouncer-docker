@@ -71,7 +71,7 @@ Add the CrowdSec Firewall Bouncer as a sidecar container:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: crowdsec-bouncer-config
+  name: crowdsec-bouncer-config-nftables
 data:
   crowdsec-firewall-bouncer.yaml.template: |
     api_url: ${CROWDSEC_API_URL}
@@ -142,7 +142,7 @@ spec:
       volumes:
       - name: crowdsec-bouncer-config
         configMap:
-          name: crowdsec-bouncer-config
+          name: crowdsec-bouncer-config-nftables
       - name: crowdsec-bouncer-var-log
         emptyDir: {}
       - name: crowdsec-bouncer-var-run
@@ -152,9 +152,9 @@ spec:
 ### Terraform Example
 
 ```hcl
-resource "kubernetes_config_map" "crowdsec_bouncer_config" {
+resource "kubernetes_config_map" "crowdsec_bouncer_config_nftables" {
   metadata {
-    name = "crowdsec-bouncer-config"
+    name = "crowdsec-bouncer-config-nftables"
   }
 
   data = {
@@ -266,7 +266,7 @@ resource "kubernetes_deployment" "app" {
         volume {
           name = "crowdsec-bouncer-config"
           config_map {
-            name = kubernetes_config_map.crowdsec_bouncer_config.metadata[0].name
+            name = kubernetes_config_map.crowdsec_bouncer_config_nftables.metadata[0].name
           }
         }
 
