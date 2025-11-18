@@ -1,0 +1,29 @@
+{
+  "categories": [],
+  "ignore_labels": [
+    "ignore-changelog",
+    "wontfix",
+    "duplicate",
+    "invalid"
+  ],
+  "sort": "ASC",
+  "template": "#{{CHANGELOG}}\n\n**Full Changelog**: https://github.com/YOUR_USERNAME/crowdsec-firewall-bouncer/compare/#{{FROM_TAG}}...#{{TO_TAG}}",
+  "pr_template": "- #{{TITLE}} by @#{{AUTHOR}} in #{{NUMBER}}",
+  "empty_template": "No changes in this release.",
+  "label_extractor": [],
+  "duplicate_filter": {
+    "pattern": "\\[ABC-....\\]",
+    "on_property": "title",
+    "method": "match"
+  },
+  "transformers": [],
+  "max_tags_to_fetch": 200,
+  "max_pull_requests": 200,
+  "max_back_track_time_days": 365,
+  "exclude_merge_branches": [],
+  "tag_resolver": {
+    "method": "semver"
+  },
+  "base_branches": ["master", "main"]
+}
+

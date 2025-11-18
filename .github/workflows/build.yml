@@ -1,0 +1,310 @@
+name: Build and Push
+
+on:
+  push:
+    branches:
+      - '**'  # Trigger on any branch
+    tags:
+      - 'v*'      # Direct version tags (e.g., v1.0.0)
+      - '**/v*'   # Version tags with path prefixes (e.g., master/v1.0.0)
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Docker Image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Load versions from .env
+        run: |
+          if [ -f .env ]; then
+            set -a
+            source .env
+            set +a
+            if [ -z "${DEBIAN_VERSION}" ]; then
+              echo "Error: DEBIAN_VERSION must be set in .env file"
+              exit 1
+            fi
+            if [ -z "${CROWDSEC_BOUNCER_VERSION}" ]; then
+              echo "Error: CROWDSEC_BOUNCER_VERSION must be set in .env file"
+              exit 1
+            fi
+            echo "DEBIAN_VERSION=${DEBIAN_VERSION}" >> $GITHUB_ENV
+            echo "CROWDSEC_BOUNCER_VERSION=${CROWDSEC_BOUNCER_VERSION}" >> $GITHUB_ENV
+          else
+            echo "Error: .env file not found. Both DEBIAN_VERSION and CROWDSEC_BOUNCER_VERSION must be set."
+            exit 1
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        run: |
+          docker build \
+            --build-arg DEBIAN_VERSION=${{ env.DEBIAN_VERSION }} \
+            --build-arg CROWDSEC_BOUNCER_VERSION=${{ env.CROWDSEC_BOUNCER_VERSION }} \
+            -f Dockerfile \
+            -t crowdsec-firewall-bouncer:test \
+            .
+
+      - name: Save Docker image
+        run: |
+          mkdir -p /tmp/docker-images
+          docker save crowdsec-firewall-bouncer:test -o /tmp/docker-images/crowdsec-firewall-bouncer.tar
+
+      - name: Upload Docker image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: /tmp/docker-images/*.tar
+          retention-days: 1
+
+  test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Download Docker image artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+          path: /tmp/docker-images
+
+      - name: Load Docker images
+        run: |
+          docker load -i /tmp/docker-images/*.tar
+
+      - name: Install PowerShell and Pester
+        run: |
+          # Set non-interactive mode to avoid prompts
+          export DEBIAN_FRONTEND=noninteractive
+          
+          sudo apt-get update
+          sudo apt-get install -y wget apt-transport-https software-properties-common
+          
+          # Download and install Microsoft signing key and repository
+          wget -q "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/packages-microsoft-prod.deb"
+          
+          # Use dpkg with force-confdef and force-confold to handle config conflicts automatically
+          sudo dpkg --force-confdef --force-confold -i packages-microsoft-prod.deb
+          
+          sudo apt-get update
+          sudo apt-get install -y powershell
+          
+          # Install Pester testing framework
+          pwsh -c "Install-Module -Name Pester -Force -Scope CurrentUser -SkipPublisherCheck -RequiredVersion 5.5.0"
+
+      - name: Start Docker services
+        run: docker compose up -d
+
+      - name: Run Pester integration tests
+        shell: pwsh
+        run: |
+          ./Test-Integration.ps1 -SkipDockerCleanup
+
+      - name: Show logs on failure
+        if: failure()
+        shell: pwsh
+        run: |
+          Write-Host "=== CrowdSec LAPI logs ==="
+          docker compose logs crowdsec
+          Write-Host ""
+          Write-Host "=== Firewall Bouncer logs ==="
+          docker compose logs crowdsec-firewall-bouncer
+          Write-Host ""
+          Write-Host "=== Init container logs ==="
+          docker compose logs crowdsec-init
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v
+
+  push_to_registry:
+    needs: [build, test]
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
+    name: Push Docker image to Docker Hub
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    env:
+      REGISTRY: docker.io
+      IMAGE_NAME: YOUR_USERNAME/crowdsec-firewall-bouncer
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Load versions from .env
+        run: |
+          if [ -f .env ]; then
+            set -a
+            source .env
+            set +a
+            if [ -z "${DEBIAN_VERSION}" ]; then
+              echo "Error: DEBIAN_VERSION must be set in .env file"
+              exit 1
+            fi
+            if [ -z "${CROWDSEC_BOUNCER_VERSION}" ]; then
+              echo "Error: CROWDSEC_BOUNCER_VERSION must be set in .env file"
+              exit 1
+            fi
+            echo "DEBIAN_VERSION=${DEBIAN_VERSION}" >> $GITHUB_ENV
+            echo "CROWDSEC_BOUNCER_VERSION=${CROWDSEC_BOUNCER_VERSION}" >> $GITHUB_ENV
+            echo "BOUNCER_VERSION_SUFFIX=-bouncer-${CROWDSEC_BOUNCER_VERSION}" >> $GITHUB_ENV
+          else
+            echo "Error: .env file not found. Both DEBIAN_VERSION and CROWDSEC_BOUNCER_VERSION must be set."
+            exit 1
+          fi
+      
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_PASSWORD }}
+      
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=tag,suffix=-debian-${{ env.DEBIAN_VERSION }}${{ env.BOUNCER_VERSION_SUFFIX }}
+            type=semver,pattern={{version}},suffix=-debian-${{ env.DEBIAN_VERSION }}${{ env.BOUNCER_VERSION_SUFFIX }}
+            type=semver,pattern={{major}}.{{minor}},suffix=-debian-${{ env.DEBIAN_VERSION }}${{ env.BOUNCER_VERSION_SUFFIX }}
+            type=semver,pattern={{major}},suffix=-debian-${{ env.DEBIAN_VERSION }}${{ env.BOUNCER_VERSION_SUFFIX }}
+      
+      - name: Build and push Docker image
+        id: push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            DEBIAN_VERSION=${{ env.DEBIAN_VERSION }}
+            CROWDSEC_BOUNCER_VERSION=${{ env.CROWDSEC_BOUNCER_VERSION }}
+      
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  create_release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: push_to_registry
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Verify tag is on master branch
+        run: |
+          TAG_NAME=${GITHUB_REF#refs/tags/}
+          git fetch origin master || git fetch origin main
+          if ! git branch -r --contains $(git rev-parse $TAG_NAME) | grep -qE "(origin/master|origin/main)"; then
+            echo "Error: Tag $TAG_NAME is not on master/main branch. Releases can only be created from master/main."
+            exit 1
+          fi
+      
+      - name: Load versions and generate release notes
+        id: release_notes
+        run: |
+          if [ -f .env ]; then
+            set -a
+            source .env
+            set +a
+          else
+            echo "Error: .env file not found"
+            exit 1
+          fi
+          
+          # Validate versions are set
+          if [ -z "${DEBIAN_VERSION}" ] || [ -z "${CROWDSEC_BOUNCER_VERSION}" ]; then
+            echo "Error: Both DEBIAN_VERSION and CROWDSEC_BOUNCER_VERSION must be set in .env file"
+            exit 1
+          fi
+          
+          # Extract version from GitHub ref (e.g., refs/tags/v1.0.0 -> v1.0.0)
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          
+          # Validate bouncer version is set
+          if [ -z "${CROWDSEC_BOUNCER_VERSION}" ]; then
+            echo "Error: CROWDSEC_BOUNCER_VERSION must be set in .env file"
+            exit 1
+          fi
+          BOUNCER_VERSION_INFO="CrowdSec Bouncer: \`${CROWDSEC_BOUNCER_VERSION}\`"
+          
+          # Generate release notes header
+          cat << EOF > release_notes.md
+          ## 🐳 CrowdSec Firewall Bouncer Docker Image
+          
+          ### 📦 Available Image
+          
+          \`\`\`bash
+          docker pull YOUR_USERNAME/crowdsec-firewall-bouncer:${VERSION}
+          \`\`\`
+          
+          ### 🔧 Versions
+          - **Debian:** \`debian:${DEBIAN_VERSION}\`
+          - **${BOUNCER_VERSION_INFO}**
+          
+          ### 📚 Documentation
+          See the [README](https://github.com/YOUR_USERNAME/crowdsec-firewall-bouncer/blob/master/README.md) for full configuration and usage documentation.
+          EOF
+          
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          cat release_notes.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "debian_version=${DEBIAN_VERSION}" >> $GITHUB_OUTPUT
+          echo "bouncer_version=${CROWDSEC_BOUNCER_VERSION:-latest}" >> $GITHUB_OUTPUT
+      
+      - name: Generate changelog
+        id: changelog
+        uses: mikepenz/release-changelog-builder-action@v4
+        with:
+          configuration: ".github/changelog-config.json"
+          failOnError: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "CrowdSec Firewall Bouncer ${{ steps.release_notes.outputs.version }} (Debian ${{ steps.release_notes.outputs.debian_version }}, Bouncer ${{ steps.release_notes.outputs.bouncer_version }})"
+          body: |
+            ${{ steps.release_notes.outputs.notes }}
+            
+            ---
+            
+            ## 📝 Changelog
+            
+            ${{ steps.changelog.outputs.changelog }}
+          draft: false
+          prerelease: false
+          generate_release_notes: false
+

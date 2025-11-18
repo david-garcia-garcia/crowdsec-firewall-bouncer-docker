@@ -1,0 +1,38 @@
+ARG DEBIAN_VERSION=12
+ARG CROWDSEC_BOUNCER_VERSION=
+FROM debian:${DEBIAN_VERSION}
+
+# Install required packages
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        curl \
+        ca-certificates \
+        gnupg \
+        apt-transport-https \
+        nftables \
+        gettext-base
+
+# Add CrowdSec repository
+# Prefer /etc/apt/keyrings/ for modern Debian/Ubuntu (apt >= 1.1)
+RUN mkdir -p /etc/apt/keyrings && \
+    curl -fsSL https://packagecloud.io/crowdsec/crowdsec/gpgkey | gpg --dearmor > /etc/apt/keyrings/crowdsec_crowdsec-archive-keyring.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/crowdsec_crowdsec-archive-keyring.gpg] https://packagecloud.io/crowdsec/crowdsec/any/ any main" > /etc/apt/sources.list.d/crowdsec_crowdsec.list
+
+# Install crowdsec-firewall-bouncer-nftables (for Kubernetes)
+# CROWDSEC_BOUNCER_VERSION must be set to install a specific version (e.g., 0.0.34)
+ARG CROWDSEC_BOUNCER_VERSION
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        crowdsec-firewall-bouncer-nftables=${CROWDSEC_BOUNCER_VERSION} && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create config directory
+RUN mkdir -p /etc/crowdsec/bouncers
+
+# Copy entrypoint script
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
+

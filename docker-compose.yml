@@ -1,0 +1,63 @@
+services:
+  # CrowdSec LAPI (Local API) - provides the API for bouncers
+  crowdsec:
+    image: crowdsecurity/crowdsec:v1.7.3
+    container_name: crowdsec-lapi
+    restart: unless-stopped
+    environment:
+      - COLLECTIONS=crowdsecurity/linux
+      # Test bouncer key for local testing only - use real keys in production
+      - BOUNCER_KEY_FIREWALL_BOUNCER_TEST=test-api-key-123
+    volumes:
+      - crowdsec-data:/var/lib/crowdsec/data
+      - crowdsec-config:/etc/crowdsec
+      - crowdsec-logs:/var/log
+    ports:
+      - "8080:8080"  # LAPI port
+    networks:
+      - crowdsec-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # CrowdSec Firewall Bouncer
+  crowdsec-firewall-bouncer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        DEBIAN_VERSION: ${DEBIAN_VERSION:-12}
+        CROWDSEC_BOUNCER_VERSION: ${CROWDSEC_BOUNCER_VERSION}
+    container_name: crowdsec-firewall-bouncer
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_ADMIN
+    environment:
+      - CROWDSEC_API_URL=http://crowdsec:8080
+      # Test API key for local testing only - use real keys in production
+      - CROWDSEC_API_KEY=test-api-key-123
+    volumes:
+      - ./config/crowdsec-firewall-bouncer.yaml.template:/tmp/crowdsec-config-source/crowdsec-firewall-bouncer.yaml.template:ro
+      - bouncer-logs:/var/log
+      - bouncer-run:/var/run
+    depends_on:
+      crowdsec:
+        condition: service_healthy
+    networks:
+      - crowdsec-network
+    restart: unless-stopped
+
+networks:
+  crowdsec-network:
+
+volumes:
+  crowdsec-data:
+  crowdsec-config:
+  crowdsec-logs:
+  bouncer-logs:
+  bouncer-run:

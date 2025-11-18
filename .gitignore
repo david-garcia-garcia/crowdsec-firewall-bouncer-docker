@@ -1,0 +1,24 @@
+# Docker volumes
+.docker/
+
+# IDE
+.vscode/
+.idea/
+
+# Environment variables - .env is committed for version management
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Logs
+*.log
+
