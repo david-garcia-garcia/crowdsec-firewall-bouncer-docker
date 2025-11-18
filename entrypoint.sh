@@ -76,6 +76,13 @@ fi
 
 # Environment variables are validated and defaults set above
 
-# Start the bouncer
-log_info "Starting crowdsec-firewall-bouncer with config: ${CONFIG_FILE}"
-exec crowdsec-firewall-bouncer -c "${CONFIG_FILE}"
+# Allow running other programs (e.g., bash for debugging)
+# If arguments are provided, run them instead of the bouncer
+if [ $# -gt 0 ]; then
+    log_info "Executing custom command: $*"
+    exec "$@"
+else
+    # Start the bouncer
+    log_info "Starting crowdsec-firewall-bouncer with config: ${CONFIG_FILE}"
+    exec crowdsec-firewall-bouncer -c "${CONFIG_FILE}"
+fi
