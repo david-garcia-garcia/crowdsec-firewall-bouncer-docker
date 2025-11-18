@@ -1,0 +1,20 @@
+# CrowdSec Firewall Bouncer Configuration Template (iptables variant)
+# This file uses environment variable substitution via envsubst
+# Variables: ${CROWDSEC_API_URL}, ${CROWDSEC_API_KEY}
+
+api_url: ${CROWDSEC_API_URL}
+api_key: ${CROWDSEC_API_KEY}
+
+mode: iptables
+update_frequency: 10s
+daemonize: false
+
+log_level: info
+log_media: stdout
+log_dir: /var/log
+pid_dir: /var/run
+
+# iptables configuration
+iptables:
+  enabled: true
+

@@ -23,15 +23,16 @@ services:
       retries: 5
       start_period: 30s
 
-  # CrowdSec Firewall Bouncer
-  crowdsec-firewall-bouncer:
+  # CrowdSec Firewall Bouncer (nftables variant)
+  crowdsec-firewall-bouncer-nftables:
+    profiles: ["nftables"]
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.nftables
       args:
         DEBIAN_VERSION: ${DEBIAN_VERSION:-12}
         CROWDSEC_BOUNCER_VERSION: ${CROWDSEC_BOUNCER_VERSION}
-    container_name: crowdsec-firewall-bouncer
+    container_name: crowdsec-firewall-bouncer-nftables
     privileged: true
     cap_add:
       - NET_ADMIN
@@ -43,6 +44,36 @@ services:
       - CROWDSEC_API_KEY=test-api-key-123
     volumes:
       - ./config/crowdsec-firewall-bouncer.yaml:/tmp/crowdsec-config-source/crowdsec-firewall-bouncer.yaml.template:ro
+      - bouncer-logs:/var/log
+      - bouncer-run:/var/run
+    depends_on:
+      crowdsec:
+        condition: service_healthy
+    networks:
+      - crowdsec-network
+    restart: unless-stopped
+
+  # CrowdSec Firewall Bouncer (iptables variant)
+  crowdsec-firewall-bouncer-iptables:
+    profiles: ["iptables"]
+    build:
+      context: .
+      dockerfile: Dockerfile.iptables
+      args:
+        DEBIAN_VERSION: ${DEBIAN_VERSION:-12}
+        CROWDSEC_BOUNCER_VERSION: ${CROWDSEC_BOUNCER_VERSION}
+    container_name: crowdsec-firewall-bouncer-iptables
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_ADMIN
+    environment:
+      - CROWDSEC_API_URL=http://crowdsec:8080
+      # Test API key for local testing only - use real keys in production
+      - CROWDSEC_API_KEY=test-api-key-123
+    volumes:
+      - ./config/crowdsec-firewall-bouncer-iptables.yaml:/tmp/crowdsec-config-source/crowdsec-firewall-bouncer.yaml.template:ro
       - bouncer-logs:/var/log
       - bouncer-run:/var/run
     depends_on:

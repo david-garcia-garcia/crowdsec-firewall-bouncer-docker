@@ -5,8 +5,11 @@ BeforeAll {
     . "$PSScriptRoot/utilities.ps1"
     
     # Test configuration
+    # Determine variant from environment or default to nftables
+    $variant = if ($env:BOUNCER_VARIANT) { $env:BOUNCER_VARIANT } else { "nftables" }
+    
     # These variables are used in tests below - linter warnings are false positives
-    $script:BouncerContainerName = "crowdsec-firewall-bouncer"
+    $script:BouncerContainerName = "crowdsec-firewall-bouncer-$variant"
     $script:CrowdSecHostUrl = "http://localhost:8080"
 }
 
@@ -115,16 +118,16 @@ Describe "CrowdSec Firewall Bouncer Integration Tests" {
             # The bouncer logs "Processing new and deleted decisions" at least once at startup
             $isProcessing = $logContent -match "Processing new and deleted decisions"
             
-            # Also verify nftables backend is initialized
-            $hasNftables = $logContent -match "nftables initiated|backend type: nftables"
+            # Verify firewall backend is initialized (either nftables or iptables)
+            $hasBackend = $logContent -match "nftables initiated|backend type: nftables|iptables.*initiated|backend type: iptables"
             
-            if (-not $isProcessing -or -not $hasNftables) {
+            if (-not $isProcessing -or -not $hasBackend) {
                 Write-Host "Bouncer logs:" -ForegroundColor Yellow
                 Write-Host $logContent -ForegroundColor Yellow
             }
             
             $isProcessing | Should -Be $true
-            $hasNftables | Should -Be $true
+            $hasBackend | Should -Be $true
         }
     }
     

@@ -14,6 +14,24 @@ CONFIG_TEMPLATE_PATH="/tmp/crowdsec-config-source/crowdsec-firewall-bouncer.yaml
 
 echo "Starting CrowdSec Firewall Bouncer..."
 
+# Detect system firewall backend
+if command -v iptables >/dev/null 2>&1; then
+    IPTABLES_OUTPUT=$(iptables -V 2>&1 || true)
+    if echo "$IPTABLES_OUTPUT" | grep -qi 'nf_tables'; then
+        DETECTED_MODE="nftables"
+    else
+        DETECTED_MODE="iptables"
+    fi
+    
+    # Warn if detected mode doesn't match configured mode
+    if [ -n "${NETWORK_MODE:-}" ] && [ "$DETECTED_MODE" != "$NETWORK_MODE" ]; then
+        echo "WARNING: System is using $DETECTED_MODE but this image is configured for $NETWORK_MODE"
+        echo "WARNING: The bouncer may not function correctly. Consider using the $DETECTED_MODE variant."
+    else
+        echo "Detected firewall backend: $DETECTED_MODE (matches configured mode: ${NETWORK_MODE:-unknown})"
+    fi
+fi
+
 # Set defaults for environment variables if not set
 export CROWDSEC_API_URL="${CROWDSEC_API_URL:-http://127.0.0.1:8080}"
 if [ -z "${CROWDSEC_API_KEY:-}" ]; then

@@ -13,8 +13,11 @@ permissions:
 
 jobs:
   build:
-    name: Build Docker Image
+    name: Build Docker Image (${{ matrix.variant }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        variant: [nftables, iptables]
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -35,6 +38,7 @@ jobs:
             fi
             echo "DEBIAN_VERSION=${DEBIAN_VERSION}" >> $GITHUB_ENV
             echo "CROWDSEC_BOUNCER_VERSION=${CROWDSEC_BOUNCER_VERSION}" >> $GITHUB_ENV
+            echo "VARIANT=${{ matrix.variant }}" >> $GITHUB_ENV
           else
             echo "Error: .env file not found. Both DEBIAN_VERSION and CROWDSEC_BOUNCER_VERSION must be set."
             exit 1
@@ -48,26 +52,29 @@ jobs:
           docker build \
             --build-arg DEBIAN_VERSION=${{ env.DEBIAN_VERSION }} \
             --build-arg CROWDSEC_BOUNCER_VERSION=${{ env.CROWDSEC_BOUNCER_VERSION }} \
-            -f Dockerfile \
-            -t crowdsec-firewall-bouncer:test \
+            -f Dockerfile.${{ matrix.variant }} \
+            -t crowdsec-firewall-bouncer:test-${{ matrix.variant }} \
             .
 
       - name: Save Docker image
         run: |
           mkdir -p /tmp/docker-images
-          docker save crowdsec-firewall-bouncer:test -o /tmp/docker-images/crowdsec-firewall-bouncer.tar
+          docker save crowdsec-firewall-bouncer:test-${{ matrix.variant }} -o /tmp/docker-images/crowdsec-firewall-bouncer-${{ matrix.variant }}.tar
 
       - name: Upload Docker image artifact
         uses: actions/upload-artifact@v4
         with:
-          name: docker-image
+          name: docker-image-${{ matrix.variant }}
           path: /tmp/docker-images/*.tar
           retention-days: 1
 
   test:
-    name: Integration Tests
+    name: Integration Tests (${{ matrix.variant }})
     runs-on: ubuntu-latest
     needs: build
+    strategy:
+      matrix:
+        variant: [nftables, iptables]
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -78,7 +85,7 @@ jobs:
       - name: Download Docker image artifacts
         uses: actions/download-artifact@v4
         with:
-          name: docker-image
+          name: docker-image-${{ matrix.variant }}
           path: /tmp/docker-images
 
       - name: Load Docker images
@@ -111,7 +118,7 @@ jobs:
       - name: Run Pester integration tests
         shell: pwsh
         run: |
-          ./Test-Integration.ps1 -SkipDockerCleanup
+          ./Test-Integration.ps1 -Variant ${{ matrix.variant }} -SkipDockerCleanup
 
       - name: Show logs on failure
         if: failure()
@@ -136,9 +143,12 @@ jobs:
       id-token: write
       attestations: write
       contents: read
-    name: Push Docker image to Docker Hub
+    name: Push Docker image to Docker Hub (${{ matrix.variant }})
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+    strategy:
+      matrix:
+        variant: [nftables, iptables]
     env:
       REGISTRY: docker.io
     
@@ -148,7 +158,7 @@ jobs:
       
       - name: Set image name
         run: |
-          echo "IMAGE_NAME=${{ secrets.DOCKER_HUB_USERNAME }}/crowdsec-firewall-bouncer" >> $GITHUB_ENV
+          echo "IMAGE_NAME=${{ secrets.DOCKER_HUB_USERNAME }}/crowdsec-firewall-bouncer-docker" >> $GITHUB_ENV
       
       - name: Load versions from .env
         run: |
@@ -184,17 +194,17 @@ jobs:
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=tag,suffix=-debian-${{ env.DEBIAN_VERSION }}${{ env.BOUNCER_VERSION_SUFFIX }}
-            type=semver,pattern={{version}},suffix=-debian-${{ env.DEBIAN_VERSION }}${{ env.BOUNCER_VERSION_SUFFIX }}
-            type=semver,pattern={{major}}.{{minor}},suffix=-debian-${{ env.DEBIAN_VERSION }}${{ env.BOUNCER_VERSION_SUFFIX }}
-            type=semver,pattern={{major}},suffix=-debian-${{ env.DEBIAN_VERSION }}${{ env.BOUNCER_VERSION_SUFFIX }}
+            type=ref,event=tag,suffix=-debian-${{ env.DEBIAN_VERSION }}${{ env.BOUNCER_VERSION_SUFFIX }}-${{ matrix.variant }}
+            type=semver,pattern={{version}},suffix=-debian-${{ env.DEBIAN_VERSION }}${{ env.BOUNCER_VERSION_SUFFIX }}-${{ matrix.variant }}
+            type=semver,pattern={{major}}.{{minor}},suffix=-debian-${{ env.DEBIAN_VERSION }}${{ env.BOUNCER_VERSION_SUFFIX }}-${{ matrix.variant }}
+            type=semver,pattern={{major}},suffix=-debian-${{ env.DEBIAN_VERSION }}${{ env.BOUNCER_VERSION_SUFFIX }}-${{ matrix.variant }}
       
       - name: Build and push Docker image
         id: push
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: Dockerfile
+          file: Dockerfile.${{ matrix.variant }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -261,14 +271,20 @@ jobs:
           fi
           BOUNCER_VERSION_INFO="CrowdSec Bouncer: \`${CROWDSEC_BOUNCER_VERSION}\`"
           
-          # Generate release notes header
+          # Generate release notes header with both variants
           cat << EOF > release_notes.md
-          ## 🐳 CrowdSec Firewall Bouncer Docker Image
+          ## 🐳 CrowdSec Firewall Bouncer Docker Images
           
-          ### 📦 Available Image
+          ### 📦 Available Images
           
+          **nftables variant** (recommended for Kubernetes):
           \`\`\`bash
-          docker pull ${{ secrets.DOCKER_HUB_USERNAME }}/crowdsec-firewall-bouncer:${VERSION}
+          docker pull ${{ secrets.DOCKER_HUB_USERNAME }}/crowdsec-firewall-bouncer-docker:${VERSION}-debian-${DEBIAN_VERSION}-bouncer-${CROWDSEC_BOUNCER_VERSION}-nftables
+          \`\`\`
+          
+          **iptables variant**:
+          \`\`\`bash
+          docker pull ${{ secrets.DOCKER_HUB_USERNAME }}/crowdsec-firewall-bouncer-docker:${VERSION}-debian-${DEBIAN_VERSION}-bouncer-${CROWDSEC_BOUNCER_VERSION}-iptables
           \`\`\`
           
           ### 🔧 Versions
@@ -276,7 +292,7 @@ jobs:
           - **${BOUNCER_VERSION_INFO}**
           
           ### 📚 Documentation
-          See the [README](https://github.com/${{ github.repository_owner }}/crowdsec-firewall-bouncer/blob/master/README.md) for full configuration and usage documentation.
+          See the [README](https://github.com/david-garcia-garcia/crowdsec-firewall-bouncer-docker/blob/master/README.md) for full configuration and usage documentation.
           EOF
           
           echo "notes<<EOF" >> $GITHUB_OUTPUT

@@ -3,10 +3,14 @@
 <#
 .SYNOPSIS
     Runs integration tests for the CrowdSec Firewall Bouncer Docker Container
+.PARAMETER Variant
+    Which bouncer variant to test: 'nftables' or 'iptables' (default: nftables)
 #>
 
 [CmdletBinding()]
 param(
+    [ValidateSet('nftables', 'iptables')]
+    [string]$Variant = 'nftables',
     [switch]$SkipDockerCleanup,
     [switch]$SkipWait
 )
@@ -18,7 +22,7 @@ function Write-Success { param([string]$Message) Write-Host "✅ $Message" -Fore
 function Write-Error { param([string]$Message) Write-Host "❌ $Message" -ForegroundColor Red }
 
 Write-Host ""
-Write-Host "🚀 CrowdSec Firewall Bouncer Integration Test Runner" -ForegroundColor Cyan
+Write-Host "🚀 CrowdSec Firewall Bouncer Integration Test Runner ($Variant)" -ForegroundColor Cyan
 Write-Host "=====================================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -62,9 +66,12 @@ if ($dockerInfo -match "OSType.*windows") {
 }
 Write-Success "Docker is configured for Linux containers"
 
+# Set environment variable for tests
+$env:BOUNCER_VARIANT = $Variant
+
 # Build Docker images
-Write-Step "Building Docker images..."
-docker compose build
+Write-Step "Building Docker images for $Variant variant..."
+docker compose --profile $Variant build
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Failed to build Docker images"
     exit 1
@@ -72,8 +79,8 @@ if ($LASTEXITCODE -ne 0) {
 Write-Success "Docker images built successfully"
 
 # Start Docker services
-Write-Step "Starting Docker Compose services..."
-docker compose up -d
+Write-Step "Starting Docker Compose services with $Variant profile..."
+docker compose --profile $Variant up -d
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Failed to start Docker services"
     exit 1
@@ -131,7 +138,7 @@ if ($result -and $result.FailedCount -eq 0) {
 # Cleanup
 if (-not $SkipDockerCleanup) {
     Write-Step "Cleaning up Docker services..."
-    docker compose down -v 2>$null
+    docker compose --profile $Variant down -v 2>$null
     Write-Success "Docker services stopped and cleaned up"
 }
 
