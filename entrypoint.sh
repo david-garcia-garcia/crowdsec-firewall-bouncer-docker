@@ -8,11 +8,24 @@ set -eu
 # - Template: /tmp/crowdsec-config-source/crowdsec-firewall-bouncer.yaml.template
 # - Output: /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml
 
+# Logging functions
+log_info() {
+    echo "[INFO] $*"
+}
+
+log_warn() {
+    echo "[WARN] $*" >&2
+}
+
+log_error() {
+    echo "[ERROR] $*" >&2
+}
+
 CONFIG_DIR="/etc/crowdsec/bouncers"
 CONFIG_FILE="${CONFIG_DIR}/crowdsec-firewall-bouncer.yaml"
 CONFIG_TEMPLATE_PATH="/tmp/crowdsec-config-source/crowdsec-firewall-bouncer.yaml.template"
 
-echo "Starting CrowdSec Firewall Bouncer..."
+log_info "Starting CrowdSec Firewall Bouncer..."
 
 # Detect system firewall backend
 if command -v iptables >/dev/null 2>&1; then
@@ -25,44 +38,44 @@ if command -v iptables >/dev/null 2>&1; then
     
     # Warn if detected mode doesn't match configured mode
     if [ -n "${NETWORK_MODE:-}" ] && [ "$DETECTED_MODE" != "$NETWORK_MODE" ]; then
-        echo "WARNING: System is using $DETECTED_MODE but this image is configured for $NETWORK_MODE"
-        echo "WARNING: The bouncer may not function correctly. Consider using the $DETECTED_MODE variant."
+        log_warn "System is using $DETECTED_MODE but this image is configured for $NETWORK_MODE"
+        log_warn "The bouncer may not function correctly. Consider using the $DETECTED_MODE variant."
     else
-        echo "Detected firewall backend: $DETECTED_MODE (matches configured mode: ${NETWORK_MODE:-unknown})"
+        log_info "Detected firewall backend: $DETECTED_MODE (matches configured mode: ${NETWORK_MODE:-unknown})"
     fi
 fi
 
 # Set defaults for environment variables if not set
 export CROWDSEC_API_URL="${CROWDSEC_API_URL:-http://127.0.0.1:8080}"
 if [ -z "${CROWDSEC_API_KEY:-}" ]; then
-    echo "Error: CROWDSEC_API_KEY is required but not set"
+    log_error "CROWDSEC_API_KEY is required but not set"
     exit 1
 fi
 
 # Process config template with envsubst
 if [ ! -f "${CONFIG_TEMPLATE_PATH}" ]; then
-    echo "Error: Configuration template not found at ${CONFIG_TEMPLATE_PATH}"
+    log_error "Configuration template not found at ${CONFIG_TEMPLATE_PATH}"
     exit 1
 fi
 
-echo "Processing configuration template with environment variables..."
-echo "  Source: ${CONFIG_TEMPLATE_PATH}"
-echo "  Destination: ${CONFIG_FILE}"
+log_info "Processing configuration template with environment variables..."
+log_info "  Source: ${CONFIG_TEMPLATE_PATH}"
+log_info "  Destination: ${CONFIG_FILE}"
 # Collect all environment variables that start with CROWDSEC_ for substitution
 CROWDSEC_VARS=$(env | grep '^CROWDSEC_' | cut -d= -f1 | sed 's/^/${/' | sed 's/$/}/' | tr '\n' ' ')
-echo "  Substituting variables: $(env | grep '^CROWDSEC_' | cut -d= -f1 | tr '\n' ' ')"
+log_info "  Substituting variables: $(env | grep '^CROWDSEC_' | cut -d= -f1 | tr '\n' ' ')"
 # Substitute all CROWDSEC_* environment variables
 envsubst "$CROWDSEC_VARS" < "${CONFIG_TEMPLATE_PATH}" > "${CONFIG_FILE}"
-echo "Configuration file generated successfully"
+log_info "Configuration file generated successfully"
 
 # Ensure configuration file was created successfully
 if [ ! -f "${CONFIG_FILE}" ]; then
-    echo "Error: Failed to generate configuration file at ${CONFIG_FILE}"
+    log_error "Failed to generate configuration file at ${CONFIG_FILE}"
     exit 1
 fi
 
 # Environment variables are validated and defaults set above
 
 # Start the bouncer
-echo "Starting crowdsec-firewall-bouncer..."
+log_info "Starting crowdsec-firewall-bouncer with config: ${CONFIG_FILE}"
 exec crowdsec-firewall-bouncer -c "${CONFIG_FILE}"
