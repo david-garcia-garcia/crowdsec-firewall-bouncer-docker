@@ -2,6 +2,14 @@
 
 Docker image for CrowdSec Firewall Bouncer with nftables support, optimized for Kubernetes deployments.
 
+## Overview
+
+This image provides the CrowdSec Firewall Bouncer as a **Kubernetes sidecar container** to secure TCP and HTTP services. The bouncer runs alongside your application container and automatically blocks malicious IPs detected by CrowdSec, protecting your services from attacks.
+
+**Principal Use Case**: Deploy as a sidecar container in Kubernetes pods to protect your TCP and HTTP services by automatically applying firewall rules based on CrowdSec threat intelligence.
+
+**When to Use This Sidecar**: While the recommended approach is to bounce at the ingress level, some ingress controllers (like Traefik) lack support for TCP bouncers. For TCP services or when ingress-level bouncing isn't available, deploy this sidecar directly in your workload pods to apply firewall rules at the pod level.
+
 ## Features
 
 - Pre-installed CrowdSec firewall bouncer with nftables support
@@ -223,6 +231,25 @@ All environment variables starting with `CROWDSEC_` are automatically substitute
 api_url: ${CROWDSEC_API_URL}
 api_key: ${CROWDSEC_API_KEY}
 ```
+
+### Logging
+
+The firewall bouncer logs its operations (connecting to CrowdSec API, applying firewall rules, processing decisions) to stdout by default (configurable via `log_media` and `log_dir`).
+
+**Operational Logs**: The bouncer logs when it:
+- Connects to the CrowdSec API
+- Receives and processes decisions from CrowdSec
+- Adds or removes IPs from firewall rules
+- General operational status
+
+**Blocked Connection Logs**: To log individual blocked connections, enable the `deny_log` option in your configuration:
+
+```yaml
+deny_log: true
+deny_log_prefix: "crowdsec: "
+```
+
+When enabled, blocked packets are logged to the kernel log (viewable via `dmesg` or `/var/log/kern.log`). In Kubernetes, these logs appear in the container's kernel logs or can be collected via a log aggregation system.
 
 ## Local Testing
 
