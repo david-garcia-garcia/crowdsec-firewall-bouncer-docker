@@ -141,11 +141,14 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     env:
       REGISTRY: docker.io
-      IMAGE_NAME: YOUR_USERNAME/crowdsec-firewall-bouncer
     
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+      
+      - name: Set image name
+        run: |
+          echo "IMAGE_NAME=${{ secrets.DOCKER_HUB_USERNAME }}/crowdsec-firewall-bouncer" >> $GITHUB_ENV
       
       - name: Load versions from .env
         run: |
@@ -265,7 +268,7 @@ jobs:
           ### 📦 Available Image
           
           \`\`\`bash
-          docker pull YOUR_USERNAME/crowdsec-firewall-bouncer:${VERSION}
+          docker pull ${{ secrets.DOCKER_HUB_USERNAME }}/crowdsec-firewall-bouncer:${VERSION}
           \`\`\`
           
           ### 🔧 Versions
@@ -273,7 +276,7 @@ jobs:
           - **${BOUNCER_VERSION_INFO}**
           
           ### 📚 Documentation
-          See the [README](https://github.com/YOUR_USERNAME/crowdsec-firewall-bouncer/blob/master/README.md) for full configuration and usage documentation.
+          See the [README](https://github.com/${{ github.repository_owner }}/crowdsec-firewall-bouncer/blob/master/README.md) for full configuration and usage documentation.
           EOF
           
           echo "notes<<EOF" >> $GITHUB_OUTPUT

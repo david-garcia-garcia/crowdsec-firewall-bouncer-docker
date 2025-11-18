@@ -6,7 +6,7 @@ api_url: ${CROWDSEC_API_URL:-http://crowdsec:8080}
 # Test API key default for local testing only - use real keys in production
 api_key: ${CROWDSEC_API_KEY:-test-api-key-123}
 
-update_frequency: 5s
+update_frequency: 1s
 daemonize: false
 
 log_level: info

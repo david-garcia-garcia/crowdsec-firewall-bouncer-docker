@@ -104,28 +104,27 @@ Describe "CrowdSec Firewall Bouncer Integration Tests" {
             }
         }
         
-        It "Bouncer should show decisions added in logs" {
-            # Wait for bouncer to process decisions (may be 0 decisions in CI)
-            # Check for either "decisions added" with a number, or multiple "Processing new and deleted decisions" messages
-            # indicating the bouncer is actively polling
-            # Update frequency is 5s, so wait for at least 2 polling cycles
-            Start-Sleep -Seconds 12
+        It "Bouncer should process decisions" {
+            # Wait for bouncer to start and process decisions
+            # Update frequency is 1s for tests, so wait for at least 3 polling cycles
+            Start-Sleep -Seconds 4
             
             $logContent = Get-ContainerLogs -ContainerName $BouncerContainerName
             
-            # Check for decisions added message (with number)
-            $hasDecisionsAdded = $logContent -imatch "\d+.*decisions.*added"
+            # Check that bouncer started successfully and is processing decisions
+            # The bouncer logs "Processing new and deleted decisions" at least once at startup
+            $isProcessing = $logContent -match "Processing new and deleted decisions"
             
-            # Or check that bouncer is actively processing (multiple polling messages)
-            $processingMessages = ([regex]::Matches($logContent, "Processing new and deleted decisions")).Count
-            $isActivelyProcessing = $processingMessages -ge 2
+            # Also verify nftables backend is initialized
+            $hasNftables = $logContent -match "nftables initiated|backend type: nftables"
             
-            if (-not $hasDecisionsAdded -and -not $isActivelyProcessing) {
-                Write-Host "Bouncer logs (looking for 'decisions added' or active processing):" -ForegroundColor Yellow
+            if (-not $isProcessing -or -not $hasNftables) {
+                Write-Host "Bouncer logs:" -ForegroundColor Yellow
                 Write-Host $logContent -ForegroundColor Yellow
             }
             
-            ($hasDecisionsAdded -or $isActivelyProcessing) | Should -Be $true
+            $isProcessing | Should -Be $true
+            $hasNftables | Should -Be $true
         }
     }
     

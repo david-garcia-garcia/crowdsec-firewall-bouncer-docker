@@ -42,7 +42,7 @@ services:
       # Test API key for local testing only - use real keys in production
       - CROWDSEC_API_KEY=test-api-key-123
     volumes:
-      - ./config/crowdsec-firewall-bouncer.yaml.template:/tmp/crowdsec-config-source/crowdsec-firewall-bouncer.yaml.template:ro
+      - ./config/crowdsec-firewall-bouncer.yaml:/tmp/crowdsec-config-source/crowdsec-firewall-bouncer.yaml.template:ro
       - bouncer-logs:/var/log
       - bouncer-run:/var/run
     depends_on:
