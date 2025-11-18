@@ -1,14 +1,13 @@
 # Integration tests for CrowdSec Firewall Bouncer
 
 BeforeAll {
-    # Test configuration
-    # Note: Inside containers, use internal port 8080; from host, use port 8080
-    $CrowdSecApiUrl = "http://crowdsec:8080"  # Internal container URL
-    $BouncerContainerName = "crowdsec-firewall-bouncer"
-    $CrowdSecContainerName = "crowdsec-lapi"
+    # Import utility functions
+    . "$PSScriptRoot/utilities.ps1"
     
-    # Hardcoded port for CrowdSec LAPI
-    $CrowdSecHostUrl = "http://localhost:8080"
+    # Test configuration
+    # These variables are used in tests below - linter warnings are false positives
+    $script:BouncerContainerName = "crowdsec-firewall-bouncer"
+    $script:CrowdSecHostUrl = "http://localhost:8080"
 }
 
 Describe "CrowdSec Firewall Bouncer Integration Tests" {
@@ -47,7 +46,7 @@ Describe "CrowdSec Firewall Bouncer Integration Tests" {
         }
         
         It "Bouncer container should have required capabilities" {
-            $inspect = docker inspect $BouncerContainerName | ConvertFrom-Json
+            $inspect = Get-ContainerInspect -ContainerName $BouncerContainerName
             $inspect[0].HostConfig.Privileged | Should -Be $true
             $capAdd = $inspect[0].HostConfig.CapAdd
             # Docker returns capabilities with CAP_ prefix
@@ -57,8 +56,7 @@ Describe "CrowdSec Firewall Bouncer Integration Tests" {
         }
         
         It "Bouncer should have connected to CrowdSec LAPI" {
-            $logs = docker logs $BouncerContainerName 2>&1
-            $logContent = $logs -join "`n"
+            $logContent = Get-ContainerLogs -ContainerName $BouncerContainerName
             
             # Check for successful connection indicators
             $hasConnection = $logContent -match "successfully connected|connection.*established|api.*ready|Starting crowdsec-firewall-bouncer"
@@ -76,8 +74,7 @@ Describe "CrowdSec Firewall Bouncer Integration Tests" {
         It "Bouncer logs should not contain critical errors" {
             # Wait a bit for container to stabilize
             Start-Sleep -Seconds 5
-            $logs = docker logs $BouncerContainerName 2>&1
-            $logContent = $logs -join "`n"
+            $logContent = Get-ContainerLogs -ContainerName $BouncerContainerName
             
             # Check that bouncer started successfully
             $hasSuccessfulStart = $logContent -match "nftables initiated|Processing new and deleted decisions|backend type: nftables"
@@ -108,66 +105,39 @@ Describe "CrowdSec Firewall Bouncer Integration Tests" {
         }
         
         It "Bouncer should show decisions added in logs" {
-            # Wait for bouncer to process decisions
-            Start-Sleep -Seconds 10
-            $logs = docker logs $BouncerContainerName 2>&1
-            $logContent = $logs -join "`n"
+            # Wait for "decisions added" message to appear in logs
+            # Matches patterns like: "5 decisions added", "decisions added", "added 10 decisions", etc.
+            $pattern = "\d+.*decisions.*added"
+            $found = Wait-For-LogMessage -ContainerName $BouncerContainerName -Pattern $pattern -TimeoutSeconds 30
             
-            # Check for "decisions added" message (case-insensitive, flexible format)
-            $hasDecisionsAdded = $logContent -imatch "decisions.*added|decisions added|number.*decisions.*added"
-            
-            if (-not $hasDecisionsAdded) {
+            if (-not $found) {
+                $logContent = Get-ContainerLogs -ContainerName $BouncerContainerName
                 Write-Host "Bouncer logs (looking for 'decisions added'):" -ForegroundColor Yellow
                 Write-Host $logContent -ForegroundColor Yellow
             }
             
-            $hasDecisionsAdded | Should -Be $true
+            $found | Should -Be $true
         }
     }
     
     Context "Bouncer Configuration" {
         It "Bouncer should have configuration file mounted" {
-            # Wait for container to be running (not restarting)
-            $maxRetries = 10
-            $retryCount = 0
-            $containerRunning = $false
-            while ($retryCount -lt $maxRetries -and -not $containerRunning) {
-                Start-Sleep -Milliseconds 500
-                $status = docker inspect $BouncerContainerName --format '{{.State.Status}}' 2>&1
-                if ($status -eq "running") {
-                    $containerRunning = $true
-                }
-                $retryCount++
-            }
+            Wait-For-ContainerRunning -ContainerName $BouncerContainerName | Should -Be $true
             
-            $configExists = docker exec $BouncerContainerName test -f /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml 2>&1
+            docker exec $BouncerContainerName test -f /etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml 2>&1 | Out-Null
             $LASTEXITCODE | Should -Be 0
         }
         
         It "Bouncer should have CROWDSEC_API_KEY environment variable set" {
-            # Wait for container to be running
             Start-Sleep -Seconds 2
-            $env = docker exec $BouncerContainerName printenv CROWDSEC_API_KEY 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                # Try getting from inspect instead
-                $inspect = docker inspect $BouncerContainerName | ConvertFrom-Json
-                $envVars = $inspect[0].Config.Env
-                $env = ($envVars | Where-Object { $_ -match "^CROWDSEC_API_KEY=" }) -replace "CROWDSEC_API_KEY=", ""
-            }
+            $env = Get-ContainerEnvironmentVariable -ContainerName $BouncerContainerName -VariableName "CROWDSEC_API_KEY"
             $env | Should -Not -BeNullOrEmpty
             $env | Should -Be "test-api-key-123"
         }
         
         It "Bouncer should have CROWDSEC_API_URL environment variable set" {
-            # Wait for container to be running
             Start-Sleep -Seconds 1
-            $env = docker exec $BouncerContainerName printenv CROWDSEC_API_URL 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                # Try getting from inspect instead
-                $inspect = docker inspect $BouncerContainerName | ConvertFrom-Json
-                $envVars = $inspect[0].Config.Env
-                $env = ($envVars | Where-Object { $_ -match "^CROWDSEC_API_URL=" }) -replace "CROWDSEC_API_URL=", ""
-            }
+            $env = Get-ContainerEnvironmentVariable -ContainerName $BouncerContainerName -VariableName "CROWDSEC_API_URL"
             $env | Should -Not -BeNullOrEmpty
             $env | Should -Match "crowdsec.*8080"
         }
@@ -175,16 +145,9 @@ Describe "CrowdSec Firewall Bouncer Integration Tests" {
     
     Context "Network Connectivity" {
         It "Bouncer should be able to reach CrowdSec LAPI" {
-            # Wait for container to be running
             Start-Sleep -Seconds 2
-            # Test connectivity from bouncer container to CrowdSec
-            # Try wget first (available in Debian), then try basic connectivity test
-            $result = docker exec $BouncerContainerName sh -c "wget --spider --quiet http://crowdsec:8080/health 2>&1 || echo 'connectivity-test'" 2>&1
-            # If wget fails, try a simple test - check if we can resolve the hostname
-            if ($LASTEXITCODE -ne 0) {
-                $result = docker exec $BouncerContainerName sh -c "getent hosts crowdsec" 2>&1
-                $LASTEXITCODE | Should -Be 0
-            }
+            $connected = Test-ContainerConnectivity -ContainerName $BouncerContainerName -Url "http://crowdsec:8080/health"
+            $connected | Should -Be $true
         }
     }
 }

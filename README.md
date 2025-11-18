@@ -147,62 +147,133 @@ spec:
 ### Terraform Example
 
 ```hcl
-dynamic "container" {
-  for_each = var.crowdsec_firewall_bouncer_enabled && var.crowdsec_api_key != null && var.crowdsec_api_key != "" ? [1] : []
-  
-  content {
-    name  = "crowdsec-firewall-bouncer"
-    image = var.crowdsec_firewall_bouncer_image
+resource "kubernetes_config_map" "crowdsec_bouncer_config" {
+  metadata {
+    name = "crowdsec-bouncer-config"
+  }
 
-    command = ["/bin/bash"]
-    args    = ["/entrypoint.sh"]
+  data = {
+    "crowdsec-firewall-bouncer.yaml.template" = <<-EOT
+      api_url: ${var.crowdsec_api_url}
+      api_key: ${var.crowdsec_api_key}
+      mode: nftables
+      update_frequency: 10s
+      daemonize: false
+      log_level: info
+      log_media: stdout
+      log_dir: /var/log
+      pid_dir: /var/run
+      nftables:
+        enabled: true
+        ipv4_table: crowdsec
+        ipv6_table: crowdsec6
+        ipv4_chain: crowdsec-chain
+        ipv6_chain: crowdsec-chain
+    EOT
+  }
+}
 
-    security_context {
-      privileged                = true
-      allow_privilege_escalation = true
-      capabilities {
-        add = ["NET_ADMIN", "NET_RAW", "SYS_ADMIN"]
+resource "kubernetes_deployment" "app" {
+  metadata {
+    name = "my-app"
+  }
+
+  spec {
+    replicas = 1
+
+    selector {
+      match_labels = {
+        app = "my-app"
       }
     }
 
-    env {
-      name  = "CROWDSEC_API_URL"
-      value = var.crowdsec_api_url
-    }
-
-    env {
-      name = "CROWDSEC_API_KEY"
-      value_from {
-        secret_key_ref {
-          name = kubernetes_secret.crowdsec_api_key[0].metadata[0].name
-          key  = "api_key"
+    template {
+      metadata {
+        labels = {
+          app = "my-app"
         }
       }
-    }
 
-    volume_mount {
-      name       = "crowdsec-bouncer-config"
-      mount_path = "/tmp/crowdsec-config-source"
-    }
+      spec {
+        # Main application container
+        container {
+          name  = "app"
+          image = "atmoz/sftp:latest"
 
-    volume_mount {
-      name       = "crowdsec-bouncer-var-log"
-      mount_path = "/var/log"
-    }
+          # ... your app configuration ...
+        }
 
-    volume_mount {
-      name       = "crowdsec-bouncer-var-run"
-      mount_path = "/var/run"
-    }
+        # CrowdSec Firewall Bouncer sidecar
+        container {
+          name  = "crowdsec-firewall-bouncer"
+          image = "YOUR_USERNAME/crowdsec-firewall-bouncer:v1.0.0-debian-12-bouncer-0.0.34"
 
-    resources {
-      requests = {
-        cpu    = "50m"
-        memory = "64Mi"
-      }
-      limits = {
-        cpu    = "200m"
-        memory = "256Mi"
+          security_context {
+            privileged                = true
+            allow_privilege_escalation = true
+            capabilities {
+              add = ["NET_ADMIN", "NET_RAW", "SYS_ADMIN"]
+            }
+          }
+
+          env {
+            name  = "CROWDSEC_API_URL"
+            value = var.crowdsec_api_url
+          }
+
+          env {
+            name = "CROWDSEC_API_KEY"
+            value_from {
+              secret_key_ref {
+                name = kubernetes_secret.crowdsec_api_key.metadata[0].name
+                key  = "api_key"
+              }
+            }
+          }
+
+          volume_mount {
+            name       = "crowdsec-bouncer-config"
+            mount_path = "/tmp/crowdsec-config-source"
+          }
+
+          volume_mount {
+            name       = "crowdsec-bouncer-var-log"
+            mount_path = "/var/log"
+          }
+
+          volume_mount {
+            name       = "crowdsec-bouncer-var-run"
+            mount_path = "/var/run"
+          }
+
+          resources {
+            requests = {
+              cpu    = "50m"
+              memory = "64Mi"
+            }
+            limits = {
+              cpu    = "200m"
+              memory = "256Mi"
+            }
+          }
+        }
+
+        volume {
+          name = "crowdsec-bouncer-config"
+          config_map {
+            name = kubernetes_config_map.crowdsec_bouncer_config.metadata[0].name
+          }
+        }
+
+        volume {
+          name = "crowdsec-bouncer-var-log"
+          empty_dir {}
+        }
+
+        volume {
+          name = "crowdsec-bouncer-var-run"
+          empty_dir {}
+        }
       }
     }
   }
